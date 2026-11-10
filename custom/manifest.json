@@ -1,0 +1,21 @@
+{
+  "copies": {
+    "my-chrome": "Sidebar header. Keeps the 76px traffic-light gap only while mine.json keeps the window buttons on screen.",
+    "my-status": "Status bar. Records the last two focused panes for pane-back (alt-tab), and shows the space chip while the sidebar is hidden. Also shows the update-check pill.",
+    "my-tabs": "Tab bar. A zoomed tab shows an accent expand icon instead of a trailing Z.",
+    "my-pane": "Pane header. A zoomed pane shows 'N hidden' with an expand icon on the right.",
+    "layout:mine": "The window. Uses the copies above, puts space-chip left of the tabs, moves the traffic lights off screen."
+  },
+  "own": {
+    "pane-back": "alt-tab: back to the previous pane in any space. Reads shared pane.prev written by my-status.",
+    "space-chip": "Shown space's avatar and name left of the tabs while the sidebar is hidden.",
+    "setup-check": "Opens a Claude tab that runs custom/CHECK.md. Opened from the status-bar pill or the update toast.",
+    "go-space-1..9": "alt-N / ctrl-N: Nth space that is not a worktree.",
+    "space-jump": "cmd-k: spaces switcher.",
+    "zen": "ctrl-alt-enter: zen layout.",
+    "dim-avatars": "Dims space avatars.",
+    "commands": "cmd-alt-p: command list.",
+    "lazygit": "ctrl-alt-g: lazygit in a float."
+  },
+  "keys": "keys.json is ours, so new default bindings from an update don't arrive by themselves. Compare against AGENTS.md's key section and herdr-app commands."
+}

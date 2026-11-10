@@ -67,13 +67,17 @@
     "ctrl-alt-up": "pane.go:up",
     "ctrl-alt-down": "pane.go:down",
     "ctrl-alt-t": "tab.new",
-    "alt-`": "tab.prev",
-    "alt-shift-`": "tab.next",
+    "ctrl-`": "tab.prev",
+    "alt-tab": "mod.open:pane-back",
     "ctrl-alt-w": "mod.open:space-jump",
     "ctrl-space": "mod.open:picker",
     "ctrl-alt-o": "mod.open:space-jump",
     "ctrl-alt-p": "app.palette",
+    "cmd-alt-p": "mod.open:commands",
     "alt-[": "layout.toggle:sidebar",
+    "alt-]": "layout.toggle:panel",
+    "alt-shift-]": "layout.toggle:tabs",
+    "ctrl-alt-enter": "mod.open:zen",
     "alt-q": "window.close",
     "ctrl-alt-g": "mod.open:lazygit",
     "alt-1": "mod.open:go-space-1",
@@ -96,6 +100,8 @@
     "alt-backspace": "send:\u0017",
     "cmd-left": "send:\u0001",
     "cmd-right": "send:\u0005",
-    "cmd-backspace": "send:\u0015"
+    "cmd-backspace": "send:\u0015",
+    "cmd-f": "terminal.search",
+    "ctrl-shift-f": "terminal.search"
   }
 }

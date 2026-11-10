@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""Keeps our copies of herdr-app's stock mods and layouts in step with updates.
+The update check (custom/CHECK.md) drives it; it only gathers facts and merges files.
+
+  reclone status            each copy: its stock source, our changes, whether stock moved
+  reclone diff NAME         our changes: the clean copy (base) -> ours
+  reclone upstream NAME     what the update changed: base -> a fresh copy of today's stock
+  reclone merge NAME        3-way merge of ours onto today's stock into custom/merged/NAME
+  reclone record NAME       today's stock becomes the base (after the copy is redone)
+  reclone api               what changed in AGENTS.md and the type files since the base
+  reclone done              mark this app version checked; clears the status-bar signal
+  reclone prechecked VER    mark a downloaded, not yet installed VER read; clears its pill
+  reclone init              snapshot bases for copies that have none
+
+A base is a clean copy as `mod.clone` makes it, so a diff shows only our edits.
+"""
+import json, pathlib, re, shutil, subprocess, sys
+
+APP = pathlib.Path.home() / ".config/herdr-app"
+CUSTOM = APP / "custom"
+BASE, FRESH, MERGED = CUSTOM / "base", CUSTOM / "fresh", CUSTOM / "merged"
+API_FILES = ["AGENTS.md", "herdr.d.ts", "gpui-kit.d.ts"]
+SKIP = {"gpui-kit.d.ts", "jsconfig.json"}  # rewritten by the app, not ours
+
+
+def version():
+    return subprocess.run(["herdr-app", "--version"], capture_output=True, text=True).stdout.split()[-1]
+
+
+def copies():
+    """{our name: (kind, stock name, version cloned from, path)} from the cloned_from fields."""
+    out = {}
+    for m in sorted((APP / "mods").glob("*/mod.json")):
+        c = json.loads(m.read_text()).get("cloned_from")
+        if c:
+            out[m.parent.name] = ("mod", c["name"], c["version"], m.parent)
+    for f in sorted((APP / "layouts").glob("*.json")):
+        c = json.loads(f.read_text()).get("cloned_from")
+        if c:
+            out[f"layout:{f.stem}"] = ("layout", c["name"], c["version"], f)
+    return out
+
+
+def clean_copy(name, dest):
+    """Writes a fresh clone of today's stock source of NAME to dest, named as ours."""
+    kind, stock, _, _ = copies()[name]
+    if dest.exists():
+        shutil.rmtree(dest) if dest.is_dir() else dest.unlink()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if kind == "layout":
+        data = json.loads((APP / "layouts" / f"{stock}.json").read_text())
+        data = {"id": data.get("id"), "cloned_from": {"name": stock, "version": version()},
+                **{k: v for k, v in data.items() if k != "id"}}
+        dest.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        return
+    # Copy the files ourselves, the way mod.clone rewrites them (asset paths and
+    # overlay names). Calling mod.clone made the app add the new mod to the layout.
+    src = APP / "mods" / stock
+    shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*SKIP))
+    for f in dest.rglob("*.js"):
+        text = f.read_text().replace(f"mods/{stock}/", f"mods/{name}/")
+        f.write_text(re.sub(rf'((?:"mod"|mod|"name"|name)\s*:\s*)"{re.escape(stock)}"', rf'\1"{name}"', text))
+
+
+def canon(path):
+    """A layout as sorted JSON, so key order the app chose doesn't show as a change."""
+    out = CUSTOM / "canon" / f"{path.parent.name}-{path.name}"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(json.loads(path.read_text()), indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+    return out
+
+
+def files(path):
+    if path.is_file():
+        return {"": canon(path) if path.suffix in ("", ".json") else path}
+    return {str(f.relative_to(path)): f for f in sorted(path.rglob("*")) if f.is_file() and f.name not in SKIP}
+
+
+def diff(a, b, label):
+    """Unified diff of two files or folders; empty when they match."""
+    out = []
+    fa, fb = files(a) if a.exists() else {}, files(b) if b.exists() else {}
+    for rel in sorted(set(fa) | set(fb)):
+        if rel == "mod.json":
+            continue  # only cloned_from differs between versions
+        r = subprocess.run(["diff", "-u", "--label", f"{label[0]}/{rel}", "--label", f"{label[1]}/{rel}",
+                            str(fa.get(rel, "/dev/null")), str(fb.get(rel, "/dev/null"))], capture_output=True, text=True)
+        out.append(r.stdout)
+    return "".join(out)
+
+
+def counts(d):
+    lines = d.splitlines()
+    return (sum(1 for l in lines if l.startswith("+") and not l.startswith("+++")),
+            sum(1 for l in lines if l.startswith("-") and not l.startswith("---")))
+
+
+def base_of(name):
+    return BASE / name.replace(":", "-")
+
+
+def need(name):
+    if name not in copies():
+        sys.exit(f"no copy named {name}; `reclone status` lists them")
+    if not base_of(name).exists():
+        sys.exit(f"{name} has no base; run `reclone init`")
+
+
+def main():
+    cmd, *rest = sys.argv[1:] or ["status"]
+    name = rest[0] if rest else None
+    if cmd == "init":
+        for n in copies():
+            if not base_of(n).exists():
+                clean_copy(n, base_of(n))
+                print(f"base for {n} from today's stock")
+        api = BASE / "_api"
+        if not api.exists():
+            api.mkdir(parents=True)
+            for f in API_FILES:
+                shutil.copy(APP / f, api / f)
+            (api / "VERSION").write_text(version() + "\n")
+            print("base for the API files")
+    elif cmd == "status":
+        now = version()
+        checked = (CUSTOM / "checked").read_text().strip() if (CUSTOM / "checked").exists() else None
+        print(f"herdr-app {now}, last checked {checked or 'never'}")
+        for n, (kind, stock, ver, path) in copies().items():
+            if not base_of(n).exists():
+                print(f"  {n:16} <- {stock} {ver}: no base, run `reclone init`")
+                continue
+            add, rem = counts(diff(base_of(n), path, ("base", "ours")))
+            moved = "stock unchanged"
+            if ver != now:
+                clean_copy(n, FRESH / n.replace(":", "-"))
+                up = counts(diff(base_of(n), FRESH / n.replace(":", "-"), ("base", "stock")))
+                moved = f"STOCK CHANGED +{up[0]} -{up[1]}" if any(up) else "stock unchanged"
+            print(f"  {n:16} <- {kind} {stock} {ver}: ours +{add} -{rem}, {moved}")
+        why = CUSTOM / "manifest.json"
+        if why.exists():
+            print("\nwhy each copy exists: custom/manifest.json")
+    elif cmd == "diff":
+        need(name)
+        print(diff(base_of(name), copies()[name][3], ("base", "ours")), end="")
+    elif cmd == "upstream":
+        need(name)
+        fresh = FRESH / name.replace(":", "-")
+        clean_copy(name, fresh)
+        print(diff(base_of(name), fresh, ("base", "stock")), end="")
+    elif cmd == "merge":
+        need(name)
+        fresh, out = FRESH / name.replace(":", "-"), MERGED / name.replace(":", "-")
+        clean_copy(name, fresh)
+        if out.exists():
+            shutil.rmtree(out) if out.is_dir() else out.unlink()
+        shutil.copytree(fresh, out) if fresh.is_dir() else (out.parent.mkdir(parents=True, exist_ok=True), shutil.copy(fresh, out))
+        ours, base, conflicts = files(copies()[name][3]), files(base_of(name)), []
+        for rel, f in files(out).items():
+            if rel == "mod.json" or rel not in ours or rel not in base:
+                continue
+            # Our edits (base -> ours) replayed onto today's stock, in place.
+            r = subprocess.run(["git", "merge-file", "-L", "stock", "-L", "base", "-L", "ours", str(f), str(base[rel]), str(ours[rel])])
+            if r.returncode:
+                conflicts.append(rel)
+        for rel in set(ours) - set(files(out)):
+            dst = out / rel if out.is_dir() else out
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ours[rel], dst)
+        print(f"merged into {out}" + (f"; conflicts in {', '.join(conflicts)}" if conflicts else "; no conflicts"))
+    elif cmd == "record":
+        need(name)
+        clean_copy(name, base_of(name))
+        kind, _, _, path = copies()[name]
+        meta = path / "mod.json" if kind == "mod" else path
+        data = json.loads(meta.read_text())
+        data["cloned_from"]["version"] = version()
+        meta.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        print(f"{name}: base is now today's stock, {version()}")
+    elif cmd == "api":
+        api = BASE / "_api"
+        print(f"API files: base {(api / 'VERSION').read_text().strip()} -> {version()}")
+        for f in API_FILES:
+            print(diff(api / f, APP / f, ("base", "now")), end="")
+    elif cmd == "done":
+        api = BASE / "_api"
+        for f in API_FILES:
+            shutil.copy(APP / f, api / f)
+        (api / "VERSION").write_text(version() + "\n")
+        (CUSTOM / "checked").write_text(version() + "\n")
+        print(f"checked {version()}")
+    elif cmd == "prechecked" and name:
+        (CUSTOM / "prechecked").write_text(name + "\n")
+        print(f"prechecked {name}")
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()

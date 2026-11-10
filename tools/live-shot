@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""Saves a screenshot of herdr-app that is known to be current.
+
+  live-shot FILE                    the window as it is now
+  live-shot FILE --tab TAB_ID       switch to that tab, shoot, switch back
+
+herdr-app draws nothing while its window is off screen (another desktop,
+minimized), and `herdr-app shot` then returns the last frame it drew. This
+refuses instead of handing back that old frame.
+"""
+import argparse
+import json
+import pathlib
+import subprocess
+import sys
+import time
+
+ONSCREEN = pathlib.Path(__file__).resolve().parent / "herdr-onscreen"
+
+
+def app(*args):
+    return subprocess.run(["herdr-app", *args], capture_output=True, text=True, check=True).stdout
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("file")
+    p.add_argument("--tab")
+    a = p.parse_args()
+    if subprocess.run([ONSCREEN], capture_output=True, text=True).stdout.strip() != "true":
+        sys.exit("herdr-app is not on screen, so it is not drawing; a shot would be an old frame")
+    back = None
+    if a.tab:
+        status = json.loads(app("status"))
+        if status["tab"] != a.tab:
+            back = status["tab"]
+            app("do", "tab.select", json.dumps({"id": a.tab}))
+    # Give the app a few frames to draw the change.
+    time.sleep(0.4)
+    try:
+        print(app("shot", a.file).strip())
+    finally:
+        if back:
+            app("do", "tab.select", json.dumps({"id": back}))
+
+
+if __name__ == "__main__":
+    main()

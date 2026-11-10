@@ -7,6 +7,6 @@
   "appearance": "dark",
   "theme": "catppuccin",
   "font": "Geist Mono",
-  "ui_font": "GeistMono Nerd Font",
+  "ui_font": "PT Mono",
   "font_size": 13
 }

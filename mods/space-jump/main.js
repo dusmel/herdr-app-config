@@ -102,7 +102,7 @@ export default class SpaceJump extends View {
         .on_click(() => this.go(r))
         .child(div().w(18).flex_none().text_size(11).text_color(t.dim).child(r.n ? String(r.n) : ""))
         .when(tree, (el) => el.child(svg("mods/workspace-chrome/branch.svg").size(12).flex_none().text_color(t.dim)))
-        .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).when(s.active, (d) => d.font_semibold()).child(s.name))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(s.name))
         .when(Boolean(s.branch), (el) => el.child(div().max_w(160).truncate().text_size(11).text_color(t.dim).child(s.branch)))
         .when(s.status === "blocked", (el) => el.child(div().text_size(11).text_color(t.blocked).child("needs you")))
         .when(s.status === "done", (el) => el.child(div().text_size(11).text_color(t.done).child("finished")))
@@ -127,7 +127,7 @@ export default class SpaceJump extends View {
         cx.stop_propagation();
         cx.notify();
       })
-      .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().text_color(t.foreground).child("Spaces")).child(div().text_size(11).text_color(t.dim).child("Esc")))
+      .child(h_flex().items_center().child(div().flex_1().text_size(15).text_color(t.foreground).child("Spaces")).child(div().text_size(11).text_color(t.dim).child("Esc")))
       .child(
         h_flex().h(36).flex_none().px(10).gap(8).items_center().rounded(9).border_1().border_color(t.accent).bg(t.background)
           .child(svg("mods/workspace-chrome/search.svg").size(15).text_color(t.dim))
