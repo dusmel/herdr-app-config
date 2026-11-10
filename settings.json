@@ -5,5 +5,8 @@
   },
   "minimum_contrast": 1,
   "appearance": "dark",
-  "theme": "catppuccin"
+  "theme": "catppuccin",
+  "font": "Geist Mono",
+  "ui_font": "GeistMono Nerd Font",
+  "font_size": 13
 }

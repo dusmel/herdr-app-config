@@ -22,6 +22,7 @@
     "#a6adc8"
   ],
   "colors": {
-    "accent": "#94e2d5"
+    "accent": "#94e2d5",
+    "chrome": "#1e1e2e"
   }
 }
