@@ -1,0 +1,1 @@
+{ "place": "none", "title": "Pick a pane", "overlay": { "kind": "popup", "at": "bottom", "offset": 60, "width": 300, "height": 64 } }
