@@ -155,7 +155,12 @@ def main():
             shutil.rmtree(out) if out.is_dir() else out.unlink()
         shutil.copytree(fresh, out) if fresh.is_dir() else (out.parent.mkdir(parents=True, exist_ok=True), shutil.copy(fresh, out))
         ours, base, conflicts = files(copies()[name][3]), files(base_of(name)), []
-        for rel, f in files(out).items():
+        targets = files(out)
+        if out.is_file():
+            # files() hands back a canon copy; merge into out itself or the result is lost.
+            shutil.copy(targets[""], out)
+            targets = {"": out}
+        for rel, f in targets.items():
             if rel == "mod.json" or rel not in ours or rel not in base:
                 continue
             # Our edits (base -> ours) replayed onto today's stock, in place.

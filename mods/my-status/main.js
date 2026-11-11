@@ -1,6 +1,6 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, agents, theme, run, window, keys, focused, shared, setShared, layout, updates, appHome, readTextFile, watchFolder, notify } from "herdr";
+import { spaces, agents, theme, run, window, keys, focused, shared, setShared, layout, updates, appHome, readTextFile, watchFolder, notify, exec, home } from "herdr";
 
 export default class WorkspaceStatus extends View {
   // The palette key as actually bound, not a hardcoded one; without a
@@ -81,6 +81,10 @@ export default class WorkspaceStatus extends View {
         div().id("setup-check").px(8).h(18).flex().items_center().rounded(5).bg(t.accent).text_color(t.chrome).font_semibold()
           .on_click(() => run("mod.open", { name: "setup-check" })).child(owed.pill)))
       .child(div().flex_1())
+      // Opens our manual, reusing its browser tab (html-docs' open-doc script).
+      .child(h_flex().id("manual").gap(5).items_center().text_color(t.accent).cursor_pointer().hover(el => el.text_color(t.foreground))
+        .on_click(() => exec("/opt/homebrew/bin/node", [`${home()}/.agents/skills/html-docs/open-doc.mjs`,
+          `${home()}/MEGA/Documents/atlas/repos/herdr/herdr-app/manual.html`])).child(svg("mods/my-status/help.svg").size(13)).child("manual"))
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
   }
 }

@@ -1,208 +1,234 @@
 {
-  "id": "root",
-  "cloned_from": {
-    "name": "main",
-    "version": "0.1.14"
-  },
-  "type": "row",
+  "background": "canvas",
   "children": [
     {
-      "id": "sidebar",
-      "type": "column",
+      "background": "chrome",
       "children": [
         {
-          "id": "brand",
-          "type": "block",
           "content": {
             "mod": "my-chrome"
           },
+          "id": "brand",
           "size": {
             "px": 46
           },
+          "type": "block",
           "window_drag": true
         },
         {
-          "id": "sidebar-lists",
-          "type": "column",
           "children": [
             {
-              "id": "spaces",
-              "type": "block",
               "content": {
                 "mod": "spaces"
               },
+              "id": "spaces",
+              "min": 90,
               "size": {
                 "weight": 1
               },
-              "min": 90
+              "type": "block"
             },
             {
-              "id": "agents",
-              "type": "block",
               "content": {
                 "mod": "agents"
               },
+              "id": "agents",
+              "min": 90,
               "size": {
                 "weight": 1
               },
-              "min": 90
+              "type": "block"
             }
-          ]
+          ],
+          "id": "sidebar-lists",
+          "type": "column"
         },
         {
-          "id": "sidebar-footer",
-          "type": "block",
           "content": {
             "mod": "workspace-chrome",
             "props": {
               "footer": true
             }
           },
+          "id": "sidebar-footer",
           "size": {
             "px": 69
-          }
+          },
+          "type": "block"
         }
       ],
+      "id": "sidebar",
+      "max": 480,
+      "min": 44,
+      "resizable": false,
       "size": {
         "px": 268
       },
-      "min": 44,
-      "max": 480,
-      "background": "chrome",
-      "resizable": false
+      "type": "column"
     },
     {
-      "id": "work",
-      "type": "column",
       "children": [
         {
-          "id": "tabs-row",
-          "type": "row",
           "children": [
             {
-              "id": "space-chip",
-              "type": "block",
               "content": {
                 "mod": "space-chip"
               },
+              "hidden": true,
+              "id": "space-chip",
               "size": {
                 "px": 130
               },
-              "hidden": true,
+              "type": "block",
               "window_drag": true
             },
             {
-              "id": "tabs",
-              "type": "block",
               "content": {
                 "mod": "my-tabs"
               },
+              "id": "tabs",
               "size": {
                 "weight": 1
               },
+              "type": "block",
               "window_drag": true
             }
           ],
+          "id": "tabs-row",
           "size": {
             "px": 42
-          }
+          },
+          "type": "row"
         },
         {
-          "id": "work-body",
-          "type": "row",
           "children": [
             {
-              "id": "main",
-              "type": "block",
               "content": {
-                "tab": "active",
                 "pane": {
+                  "background": "background",
+                  "border": {
+                    "color": "border",
+                    "width": 1
+                  },
+                  "focus": {
+                    "color": "accent",
+                    "width": 1
+                  },
+                  "gap": 8,
                   "header": {
                     "content": {
                       "mod": "my-pane"
                     },
-                    "reveal": "always",
                     "height": 30,
-                    "position": "top"
+                    "position": "top",
+                    "reveal": "always"
                   },
-                  "background": "background",
-                  "border": {
-                    "width": 1,
-                    "color": "border"
-                  },
-                  "focus": {
-                    "width": 1,
-                    "color": "accent"
-                  },
-                  "radius": 10,
-                  "gap": 8,
-                  "lone": true
-                }
-              }
+                  "lone": true,
+                  "radius": 10
+                },
+                "tab": "active"
+              },
+              "id": "main",
+              "type": "block"
             },
             {
-              "id": "panel",
-              "type": "column",
               "children": [
                 {
-                  "id": "panel-body",
-                  "type": "stack",
+                  "active": "files",
                   "children": [
                     {
-                      "id": "files",
-                      "type": "block",
                       "content": {
                         "mod": "files"
-                      }
+                      },
+                      "id": "files",
+                      "type": "block"
                     },
                     {
-                      "id": "changes",
-                      "type": "block",
                       "content": {
                         "mod": "changes"
-                      }
+                      },
+                      "id": "changes",
+                      "type": "block"
+                    },
+                    {
+                      "content": {
+                        "mod": "atlas-panel"
+                      },
+                      "id": "atlas",
+                      "type": "block"
                     }
                   ],
-                  "active": "files"
+                  "id": "panel-body",
+                  "type": "stack"
                 }
               ],
+              "hidden": true,
+              "id": "panel",
+              "max": 900,
+              "min": 280,
               "size": {
                 "px": 368
               },
-              "min": 280,
-              "max": 900,
-              "hidden": true
+              "type": "column"
             }
           ],
+          "gap": 8,
+          "id": "work-body",
           "padding": 8,
-          "gap": 8
+          "type": "row"
         },
         {
-          "id": "status",
-          "type": "block",
-          "content": {
-            "mod": "my-status"
-          },
+          "children": [
+            {
+              "content": {
+                "mod": "my-status"
+              },
+              "id": "status",
+              "size": {
+                "weight": 1
+              },
+              "type": "block"
+            },
+            {
+              "content": {
+                "mod": "atlas-chip"
+              },
+              "id": "atlas-chip",
+              "size": {
+                "px": 0
+              },
+              "type": "block"
+            }
+          ],
+          "id": "status-row",
           "size": {
             "px": 28
-          }
+          },
+          "type": "row"
         }
       ],
-      "resizable": false
+      "id": "work",
+      "resizable": false,
+      "type": "column"
     }
   ],
-  "background": "canvas",
+  "cloned_from": {
+    "name": "main",
+    "version": "0.1.15"
+  },
+  "divider": {
+    "color": "border",
+    "width": 1
+  },
+  "id": "root",
   "terminal_padding": [
     14,
     12
   ],
-  "divider": {
-    "width": 1,
-    "color": "border"
-  },
   "titlebar": "none",
   "traffic_lights": [
     -100,
     -100
-  ]
+  ],
+  "type": "row"
 }

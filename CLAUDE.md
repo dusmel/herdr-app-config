@@ -21,6 +21,10 @@ herdr-app rewrites `AGENTS.md` on every start, so our rules live here.
 - Look at it with `tools/live-shot FILE` and read the PNG. A bare `herdr-app shot` is stale when the window is hidden.
 - Don't toggle layout blocks the person uses (the sidebar, the panel) to test. If you must, put them back.
 
+## Performance
+
+Keep the app light. A mod must not start a process on a timer, must do nothing while hidden, must read only new bytes of a file, and must cap text before string work. Measure `herdr-app` CPU with and without it before keeping it. The full budget, with the numbers behind it: `~/MEGA/Documents/atlas/repos/herdr/herdr-app/plan.md`, section "Performance budget".
+
 ## Updates
 
 `custom/CHECK.md` is the update playbook. The status-bar pill starts it before a restart (from release notes) and after one (merges the copies).

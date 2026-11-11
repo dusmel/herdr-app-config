@@ -149,6 +149,13 @@
                       },
                       "id": "changes",
                       "type": "block"
+                    },
+                    {
+                      "content": {
+                        "mod": "atlas-panel"
+                      },
+                      "id": "atlas",
+                      "type": "block"
                     }
                   ],
                   "id": "panel-body",
@@ -171,14 +178,33 @@
           "type": "row"
         },
         {
-          "content": {
-            "mod": "my-status"
-          },
-          "id": "status",
+          "children": [
+            {
+              "content": {
+                "mod": "my-status"
+              },
+              "id": "status",
+              "size": {
+                "weight": 1
+              },
+              "type": "block"
+            },
+            {
+              "content": {
+                "mod": "atlas-chip"
+              },
+              "id": "atlas-chip",
+              "size": {
+                "px": 0
+              },
+              "type": "block"
+            }
+          ],
+          "id": "status-row",
           "size": {
             "px": 28
           },
-          "type": "block"
+          "type": "row"
         }
       ],
       "id": "work",
@@ -188,7 +214,7 @@
   ],
   "cloned_from": {
     "name": "main",
-    "version": "0.1.14"
+    "version": "0.1.15"
   },
   "divider": {
     "color": "border",
