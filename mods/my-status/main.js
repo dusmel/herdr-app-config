@@ -72,9 +72,12 @@ export default class WorkspaceStatus extends View {
     const needs = list.filter(a => a.status === "blocked").length;
     const owed = this.owed();
     const label = (icon, text) => h_flex().gap(6).items_center().child(svg(`mods/workspace-chrome/${icon}.svg`).size(13)).child(text);
-    return h_flex().size_full().px(14).gap(16).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
+    // A thin line between groups; atlas-chip draws the same one on its left.
+    const sep = () => div().w(1).h(14).flex_none().bg(t.border);
+    return h_flex().size_full().px(14).gap(12).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
       .child(label(space?.machine ? "server" : "monitor", space?.machine ?? "This computer"))
-      .when(Boolean(space?.branch), el => el.child(label("branch", space.branch)))
+      .when(Boolean(space?.branch), el => el.child(sep()).child(label("branch", space.branch)))
+      .child(sep())
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} agents`)
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
       .when(Boolean(owed), el => el.child(
@@ -85,6 +88,7 @@ export default class WorkspaceStatus extends View {
       .child(h_flex().id("manual").gap(5).items_center().text_color(t.accent).cursor_pointer().hover(el => el.text_color(t.foreground))
         .on_click(() => exec("/opt/homebrew/bin/node", [`${home()}/.agents/skills/html-docs/open-doc.mjs`,
           `${home()}/MEGA/Documents/atlas/repos/herdr/herdr-app/manual.html`])).child(svg("mods/my-status/help.svg").size(13)).child("manual"))
+      .child(sep())
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
   }
 }
