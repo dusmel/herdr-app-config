@@ -220,11 +220,11 @@ export default class AtlasPanel extends View {
     // "r" goes session, repo, all, timeline, then back to session.
     if (action === "scope") {
       if (!s?.applies) return;
-      if (this.mode === "timeline") return this.view(cx, SCOPES[0][0]);
+      if (this.mode === "timeline") return this.pick(cx, SCOPES[0][0]);
       const i = SCOPES.findIndex(([k]) => k === s.scope);
-      return i === SCOPES.length - 1 ? this.view(cx, "timeline") : setScope(SCOPES[i + 1][0]);
+      return i === SCOPES.length - 1 ? this.pick(cx, "timeline") : setScope(SCOPES[i + 1][0]);
     }
-    if (action === "timeline" || SCOPES.some(([k]) => k === action)) return this.view(cx, action);
+    if (action === "timeline" || SCOPES.some(([k]) => k === action)) return this.pick(cx, action);
     if (action.startsWith("select-")) { this.sel = `t${action.slice(7)}`; return cx.notify(); }
     if (action.startsWith("expand-")) return this.expand(cx, Number(action.slice(7)));
     const row = rows[i];
@@ -252,7 +252,7 @@ export default class AtlasPanel extends View {
   }
 
   // Opening the timeline always reloads it; a todo view goes through atlas-chip's scope.
-  view(cx, k) {
+  pick(cx, k) {
     this.mode = k === "timeline" ? "timeline" : "todos";
     if (k === "timeline") this.tl = null;
     else setScope(k);
@@ -555,7 +555,7 @@ export default class AtlasPanel extends View {
     const tab = (k, label, on) => div().id(`apn-scope-${k}`).px(8).h_full().flex().items_center().rounded(4).text_size(11)
       .when(on, (el) => el.bg(t.background).text_color(t.accent).font_semibold())
       .when(!on, (el) => el.text_color(t.dim).cursor_pointer().hover((el) => el.text_color(t.foreground)))
-      .on_click((_e, cx) => this.view(cx, k))
+      .on_click((_e, cx) => this.pick(cx, k))
       .child(label);
     const todos = this.mode === "todos";
     return h_flex().flex_none().h(22).p(2).gap(2).rounded(6).bg(t.chrome).border_1().border_color(t.border)

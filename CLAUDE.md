@@ -20,6 +20,7 @@ herdr-app rewrites `AGENTS.md` on every start, so our rules live here.
 - `herdr-app check mods/<name>`, then `herdr-app status` for `.errors`.
 - Look at it with `tools/live-shot FILE` and read the PNG. A bare `herdr-app shot` is stale when the window is hidden.
 - Don't toggle layout blocks the person uses (the sidebar, the panel) to test. If you must, put them back.
+- `check` renders once and clicks nothing, and `herdr-app do <mod>.<command>` reached no copy in the atlas timeline work. Before calling a change done, call every click handler you added or touched headlessly: load the real `main.js` with stand-ins for `gpui-kit`, `gpui-base` and `herdr`, render, and call the recorded `on_click`. Shape: `atlas/repos/atlas/timeline/evidence/phase-4/switch/switch.test.ts`. That check would have caught a new `view()` method that the panel's `this.view` field overwrote, which broke every tab of the switch.
 
 ## Performance
 
