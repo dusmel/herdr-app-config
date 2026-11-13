@@ -47,6 +47,24 @@ export const listGroups = () => call(`/api/groups`);
 export const groupTodos = (repo, group) => call(`/api/todos?status=todo,doing&repo=${encodeURIComponent(repo)}&group=${encodeURIComponent(group)}`);
 export const addTodo = (body) => call(`/api/todos`, { method: "POST", body: JSON.stringify(body) });
 
+// The timeline (atlas/repos/atlas/timeline/design.html): the effort a session works on, else
+// the repo's latest, with its entries. { effort: null } when there is none. A server without
+// the timeline answers a bare 404, which throws "atlas 404"; an unknown session is not_found.
+export async function effortFor(session, repo) {
+  let effort = null;
+  if (session) {
+    const v = await call(`/api/timeline?session=${encodeURIComponent(session)}`).catch((e) => { if (e?.message === "atlas 404") throw e; return null; });
+    const score = (e) => (e.repo_name === repo?.name ? 4 : 0) + (e.branches ? 2 : 0) + e.signals.length / 10;
+    effort = (v?.session?.efforts ?? []).filter((e) => e.branches || e.signals.includes("adopted")).sort((a, b) => score(b) - score(a))[0] ?? null;
+  }
+  if (!effort && repo?.id) {
+    const list = await call(`/api/timeline`);
+    effort = list.efforts.filter((e) => e.repo_id === repo.id).sort((a, b) => (b.last_at ?? "").localeCompare(a.last_at ?? ""))[0] ?? null;
+  }
+  return effort ? call(`/api/timeline?group=${effort.id}`) : { effort: null };
+}
+export const openTimeline = async (group) => { const c = await config(); if (c?.url) await exec("/usr/bin/open", [`${c.url}/timeline?group=${group}`]).catch(() => null); };
+
 // The atlas repo for a folder: inside the atlas tree, or a folder (or a parent,
 // for worktrees) with an `atlas` link into it. Null when there is none.
 const repos = new Map();

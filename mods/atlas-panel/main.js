@@ -3,14 +3,23 @@
 // view holds only the session's todos, most relevant first, faded past a day; the others
 // add a line that leads back to it. Reads shared "atlas", "atlas.mine" and "atlas.docs"
 // (atlas-chip loads them). At most 50 rows: 8 doing, 12 next, 20 done, 10 docs.
+// A fourth view, timeline, shows the session's effort from the Atlas timeline; only this panel has it.
 // Keys and mouse actions: atlas/repos/herdr/herdr-app/atlas-mod/design.html#actions.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, HoverCard } from "gpui-base";
 import { theme, shared, setShared, run, hc, agents, nextCommand } from "herdr";
-import { updateTodo, moveTodo, addTodo, repoRef, PERSONAL, ago, openDoc, actingFor, setScope, SCOPES, sessionSummary, todoDetail, openTodo } from "./api.js";
+import { updateTodo, moveTodo, addTodo, repoRef, PERSONAL, ago, openDoc, actingFor, setScope, SCOPES, sessionSummary, todoDetail, openTodo, effortFor, openTimeline, cut } from "./api.js";
 
 const PAGE = 20;
 const OTHER = "no group";
+// A timeline entry's days, "12 Nov" or "12 to 13 Nov", read from the dates as the server wrote them.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const day = (iso) => ({ d: Number(iso.slice(8, 10)), m: MONTHS[Number(iso.slice(5, 7)) - 1] });
+const days = (e) => {
+  if (!e.started_at) return "";
+  const a = day(e.started_at), b = day(e.ended_at ?? e.started_at);
+  return a.d === b.d && a.m === b.m ? `${a.d} ${a.m}` : `${a.d}${a.m === b.m ? "" : ` ${a.m}`} to ${b.d} ${b.m}`;
+};
 const message = (todo, extra) =>
   `Work on atlas todo #${todo.id}: ${todo.title}. Read it with \`atlas todo show ${todo.id}\`, run \`atlas todo start ${todo.id}\`, and \`atlas todo done ${todo.id}\` when finished.${extra ? `\n\n${extra}` : ""}`;
 
@@ -41,6 +50,8 @@ export default class AtlasPanel extends View {
     this.compose = null; // { todo, where } for an extra message, or { add: true }
     this.drag = null; // { id, over, after }
     this.expanded = null; // { id, data, error } for the one open row
+    this.mode = "todos"; // or "timeline"
+    this.tl = null; // { key, at, loading, data, error }: the timeline view's effort
     this.handle = cx.focus_handle();
     this.input = InputState.new({ placeholder: "" });
     // atlas-panel.<action>: the same actions as the keys, for checks without a keyboard.
@@ -180,6 +191,7 @@ export default class AtlasPanel extends View {
 
   // The rows in screen order, for the keyboard.
   rows() {
+    if (this.mode === "timeline") return [];
     const { docs, todos: t } = this.lists();
     const page = t ? Math.min(this.page, Math.max(0, Math.ceil(t.done.length / PAGE) - 1)) : 0;
     const todos = t ? [...t.doing.slice(0, this.cap("Doing", 8)), ...t.next.slice(0, this.cap("Next", 12)), ...t.done.slice(page * PAGE, page * PAGE + PAGE)] : [];
@@ -205,11 +217,14 @@ export default class AtlasPanel extends View {
       this.page = 0;
       return cx.notify();
     }
+    // "r" goes session, repo, all, timeline, then back to session.
     if (action === "scope") {
       if (!s?.applies) return;
+      if (this.mode === "timeline") return this.view(cx, SCOPES[0][0]);
       const i = SCOPES.findIndex(([k]) => k === s.scope);
-      return setScope(SCOPES[(i + 1) % SCOPES.length][0]);
+      return i === SCOPES.length - 1 ? this.view(cx, "timeline") : setScope(SCOPES[i + 1][0]);
     }
+    if (action === "timeline" || SCOPES.some(([k]) => k === action)) return this.view(cx, action);
     if (action.startsWith("select-")) { this.sel = `t${action.slice(7)}`; return cx.notify(); }
     if (action.startsWith("expand-")) return this.expand(cx, Number(action.slice(7)));
     const row = rows[i];
@@ -234,6 +249,14 @@ export default class AtlasPanel extends View {
     if (action === "move-down" && at >= 0 && at < next.length - 1) this.move(cx, todo, this.nextTo(todo, next[at + 1], "after"), "moved down");
     if (action === "move-top" && at > 0) this.move(cx, todo, { top: true, ...lane(next[0]) }, "moved to the top");
     if (action === "move-bottom" && at >= 0 && at < next.length - 1) this.move(cx, todo, { bottom: true, ...lane(last) }, "moved to the bottom");
+  }
+
+  // Opening the timeline always reloads it; a todo view goes through atlas-chip's scope.
+  view(cx, k) {
+    this.mode = k === "timeline" ? "timeline" : "todos";
+    if (k === "timeline") this.tl = null;
+    else setScope(k);
+    cx.notify();
   }
 
   key(e, cx) {
@@ -387,7 +410,7 @@ export default class AtlasPanel extends View {
   // H2 + H4 in chip-options.html#headings: status dot, name, count pill, then a rule.
   heading(t, title, count, extra) {
     // Doing is an empty ring, Next and Done filled, as on the rows.
-    const dot = { Doing: t.foreground, Next: t.muted, Done: t.accent }[title];
+    const dot = { Doing: t.foreground, Next: t.muted, Done: t.accent, "Waiting on you": t.working, Parked: t.dim }[title];
     // The dot sits in the rows' 14 px dot column, so it lines up with theirs.
     return h_flex().pr(8).pt(12).pb(4).gap(6).items_center().text_size(12).font_semibold().text_color(t.foreground)
       .child(div().w(14).flex_none().flex().justify_center()
@@ -466,14 +489,78 @@ export default class AtlasPanel extends View {
         .child(this.moreEfforts ? "less" : `+${rest} more`)));
   }
 
-  // Which view is showing, and a click on another one switches to it.
+  // The timeline's effort, loaded from render: only while the panel shows, at most once a
+  // minute, and again when the session or repo changes. No timer, so a hidden panel costs nothing.
+  loadTimeline(cx, s) {
+    const session = shared("atlas.docs")?.session ?? null;
+    const key = `${session}|${s?.repo?.id ?? ""}`;
+    const old = this.tl;
+    if (old?.key === key && (old.loading || Date.now() - old.at < 60000)) return;
+    const mine = { key, at: Date.now(), loading: true, data: old?.key === key ? old.data : null, error: null };
+    this.tl = mine;
+    cx.spawn(async (cx) => {
+      try { mine.data = await effortFor(session, s?.repo); }
+      catch (e) { mine.error = e?.message === "atlas 404" ? "This Atlas server has no timeline yet." : `Atlas is offline: ${e?.message ?? "error"}`; }
+      mine.loading = false;
+      mine.at = Date.now();
+      if (this.tl === mine) cx.notify();
+    });
+  }
+
+  // As on the web page: what waits on you, then Doing, Next, Parked, and Done newest first.
+  timeline(t) {
+    const tl = this.tl;
+    const v = tl?.data;
+    const say = (text) => div().px(8).py(8).text_size(12).text_color(t.dim).child(text);
+    if (!v) return [say(tl?.error ?? "Loading…")];
+    if (!v.group) return [say("No effort linked to this session or repo. Link one with atlas timeline link.")];
+    const by = (state) => v.entries.filter((e) => e.state === state);
+    const waiting = v.entries.filter((e) => e.state !== "done").flatMap((e) => e.lines.filter((l) => l.kind === "waiting")).slice(0, 8);
+    const done = by("done").sort((a, b) => (b.ended_at ?? "").localeCompare(a.ended_at ?? ""));
+    const part = (title, list, row) => list.length > 0 && v_flex().child(this.heading(t, title, list.length)).children(list.map(row));
+    return [
+      h_flex().id("apn-tl-effort").mx(2).px(8).h(30).gap(6).items_center().rounded(6).cursor_pointer().hover((el) => el.bg(t.hover))
+        .on_click(() => openTimeline(v.group.id))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_semibold().text_color(t.accent).child(v.group.name))
+        .child(div().flex_none().text_size(10.5).text_color(t.dim).child([v.group.repo_name, v.group.branches].filter(Boolean).join(" · ")))
+        .child(svg("mods/atlas-chip/link.svg").size(11).flex_none().text_color(t.dim)),
+      tl.error && say(tl.error),
+      part("Waiting on you", waiting, (l) => h_flex().pr(8).py(3).gap(6).items_start().text_size(12)
+        .child(div().w(14).flex_none())
+        .child(div().flex_1().min_w(0).text_color(t.foreground).child(cut(l.text, 200)))),
+      part("Doing", by("doing"), (e) => this.entry(t, e)),
+      part("Next", by("todo"), (e) => this.entry(t, e)),
+      part("Parked", by("parked"), (e) => this.entry(t, e)),
+      part("Done", done, (e) => this.entry(t, e)),
+    ].filter(Boolean);
+  }
+
+  // One entry: its dot, title and days; under it the note, or an open entry's last 4 lines.
+  entry(t, e) {
+    const open = e.state !== "done";
+    const lines = open ? e.lines.filter((l) => l.kind !== "waiting" && l.kind !== "evidence").slice(-4) : [];
+    const under = (text, color) => h_flex().gap(6).child(div().w(14).flex_none()).child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(color).child(cut(text, 200)));
+    return v_flex().pb(4)
+      .child(h_flex().h(26).pr(8).gap(6).items_center()
+        .child(div().w(14).flex_none().flex().justify_center().text_size(9).text_color({ doing: t.foreground, done: t.accent }[e.state] ?? t.muted).child(e.state === "doing" ? "○" : "●"))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(open ? t.foreground : t.muted).child(e.title))
+        .when(e.merged, (el) => el.child(div().flex_none().px(5).rounded(4).bg(t.chrome).text_size(10).text_color(t.muted).child("merged")))
+        .child(div().flex_none().text_size(10.5).text_color(t.dim).child(days(e))))
+      .when(Boolean(e.note), (el) => el.child(under(e.note, t.muted)))
+      .children(lines.map((l) => under(l.text, t.dim)));
+  }
+
+  // Which view is showing, and a click on another one switches to it. Timeline is this panel's own.
   switcher(t, s) {
+    const tab = (k, label, on) => div().id(`apn-scope-${k}`).px(8).h_full().flex().items_center().rounded(4).text_size(11)
+      .when(on, (el) => el.bg(t.background).text_color(t.accent).font_semibold())
+      .when(!on, (el) => el.text_color(t.dim).cursor_pointer().hover((el) => el.text_color(t.foreground)))
+      .on_click((_e, cx) => this.view(cx, k))
+      .child(label);
+    const todos = this.mode === "todos";
     return h_flex().flex_none().h(22).p(2).gap(2).rounded(6).bg(t.chrome).border_1().border_color(t.border)
-      .children(SCOPES.map(([k, label]) => div().id(`apn-scope-${k}`).px(8).h_full().flex().items_center().rounded(4).text_size(11)
-        .when(s?.scope === k, (el) => el.bg(t.background).text_color(t.accent).font_semibold())
-        .when(s?.scope !== k, (el) => el.text_color(t.dim).cursor_pointer().hover((el) => el.text_color(t.foreground)))
-        .on_click(() => setScope(k))
-        .child(label)));
+      .children(SCOPES.map(([k, label]) => tab(k, label, todos && s?.scope === k)))
+      .child(tab("timeline", "timeline", !todos));
   }
 
   render(cx) {
@@ -484,7 +571,10 @@ export default class AtlasPanel extends View {
     // Tag rows with their repo when the view spans more than one.
     this.all = s?.scope === "all" || (s?.view === "session" && new Set([...(todos?.doing ?? []), ...(todos?.next ?? []), ...(todos?.done ?? [])].map((x) => x.repo)).size > 1);
     const empty = todos && !todos.doing.length && !todos.next.length && !todos.done.length;
+    const onTimeline = this.mode === "timeline" && s?.applies;
+    if (onTimeline) this.loadTimeline(cx, s);
     const body = !s?.applies ? "Focus an agent in a repo with atlas notes."
+      : onTimeline ? null
       : !todos ? (s.error ? `Atlas is offline: ${s.error}` : "Loading…") : null;
     const c = this.compose;
     return v_flex().id("atlas-panel").track_focus(this.handle).size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).focus((el) => el.border_color(t.accent)).text_color(t.foreground)
@@ -506,7 +596,7 @@ export default class AtlasPanel extends View {
           .child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))))
       .child(v_flex().id("atlas-panel-scroll").flex_1().min_h(0).overflow_y_scroll().p(6).pb(16)
         .when(Boolean(body), (el) => el.child(div().px(8).py(8).text_size(12).text_color(t.dim).child(body)))
-        .children([
+        .children(onTimeline ? this.timeline(t) : [
           s?.view === "fallback" && div().px(8).py(6).text_size(11.5).text_color(t.dim).child(`No session activity yet: showing ${s.repo?.name ?? "personal"}.`),
           summary && div().id("apn-summary").mx(2).px(8).h(28).flex().items_center().rounded(6).text_size(12).text_color(t.muted).cursor_pointer()
             .hover((el) => el.bg(t.hover).text_color(t.foreground)).on_click(() => setScope("session")).child(`${summary} →`),
@@ -521,7 +611,7 @@ export default class AtlasPanel extends View {
           this.docs(t, docs),
         ].filter(Boolean)))
       .child(h_flex().flex_none().flex_wrap().px(12).py(6).gap_x(12).gap_y(4).items_center().border_t_1().border_color(t.border).text_size(12)
-        .children(KEYS.map(([k, what]) => h_flex().gap(4).items_center()
+        .children((onTimeline ? [["r", "view"]] : KEYS).map(([k, what]) => h_flex().gap(4).items_center()
           .child(div().px(5).rounded(4).bg(t.chrome).border_1().border_color(t.border).text_color(t.foreground).child(k))
           .child(div().text_color(t.muted).child(what)))));
   }
