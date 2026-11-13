@@ -1,0 +1,29 @@
+# Written by herdr-app (see the file table in AGENTS.md)
+AGENTS.md
+*.d.ts
+jsconfig.json
+herdr-app.sock
+icons/
+frame/
+data/
+view.json
+shared.json*
+seen.json
+installed.json
+window.json
+windows.json
+update-notes*
+telemetry/
+layouts/.state/
+
+# Ours, but not worth history
+*.pre-migration
+__pycache__/
+.DS_Store
+
+# Link to this repo's atlas notes, for the atlas chip
+/atlas
+
+# One-off TUI migration output: work repo paths and session ids
+/migrate/spaces/
+/migrate/spaces.dry-run-1/

@@ -1,9 +1,9 @@
-// The atlas page of the right panel: a view switch (session, repo, all), then Doing, Next
-// and Done (20 a page) with group tags, and in the session view its docs. The session
+// The atlas page of the right panel: two tabs, Tasks and Timeline. Tasks has a view switch
+// (session, repo, all), then Doing, Next and Done (20 a page) with group tags, and in the session view its docs. The session
 // view holds only the session's todos, most relevant first, faded past a day; the others
 // add a line that leads back to it. Reads shared "atlas", "atlas.mine" and "atlas.docs"
 // (atlas-chip loads them). At most 50 rows: 8 doing, 12 next, 20 done, 10 docs.
-// A fourth view, timeline, shows the session's effort from the Atlas timeline; only this panel has it.
+// Timeline draws the session's effort as a rail, like the web page (atlas/timeline/design.html, T21).
 // Keys and mouse actions: atlas/repos/herdr/herdr-app/atlas-mod/design.html#actions.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, HoverCard } from "gpui-base";
@@ -251,11 +251,12 @@ export default class AtlasPanel extends View {
     if (action === "move-bottom" && at >= 0 && at < next.length - 1) this.move(cx, todo, { bottom: true, ...lane(last) }, "moved to the bottom");
   }
 
-  // Opening the timeline always reloads it; a todo view goes through atlas-chip's scope.
+  // Opening the timeline always reloads it; "tasks" returns to the todo view as it was, and a
+  // todo view goes through atlas-chip's scope.
   pick(cx, k) {
     this.mode = k === "timeline" ? "timeline" : "todos";
     if (k === "timeline") this.tl = null;
-    else setScope(k);
+    else if (k !== "tasks") setScope(k);
     cx.notify();
   }
 
@@ -507,17 +508,19 @@ export default class AtlasPanel extends View {
     });
   }
 
-  // As on the web page: what waits on you, then Doing, Next, Parked, and Done newest first.
+  // As on the web page: what waits on you, then the rail oldest first, a solid line up to now
+  // and a dashed one after. Done entries before the last 4 fold behind "N earlier".
   timeline(t) {
     const tl = this.tl;
     const v = tl?.data;
     const say = (text) => div().px(8).py(8).text_size(12).text_color(t.dim).child(text);
     if (!v) return [say(tl?.error ?? "Loading…")];
     if (!v.group) return [say("No effort linked to this session or repo. Link one with atlas timeline link.")];
-    const by = (state) => v.entries.filter((e) => e.state === state);
-    const waiting = v.entries.filter((e) => e.state !== "done").flatMap((e) => e.lines.filter((l) => l.kind === "waiting")).slice(0, 8);
-    const done = by("done").sort((a, b) => (b.ended_at ?? "").localeCompare(a.ended_at ?? ""));
-    const part = (title, list, row) => list.length > 0 && v_flex().child(this.heading(t, title, list.length)).children(list.map(row));
+    const list = v.entries;
+    const waiting = list.filter((e) => e.state !== "done").flatMap((e) => e.lines.filter((l) => l.kind === "waiting")).slice(0, 8);
+    const doingAt = list.findIndex((e) => e.state === "doing");
+    const solidUntil = doingAt >= 0 ? doingAt : list.map((e) => e.state).lastIndexOf("done");
+    const from = this.tlEarlier ? 0 : Math.max(0, solidUntil - 4);
     return [
       h_flex().id("apn-tl-effort").mx(2).px(8).h(30).gap(6).items_center().rounded(6).cursor_pointer().hover((el) => el.bg(t.hover))
         .on_click(() => openTimeline(v.group.id))
@@ -525,42 +528,66 @@ export default class AtlasPanel extends View {
         .child(div().flex_none().text_size(10.5).text_color(t.dim).child([v.group.repo_name, v.group.branches].filter(Boolean).join(" · ")))
         .child(svg("mods/atlas-chip/link.svg").size(11).flex_none().text_color(t.dim)),
       tl.error && say(tl.error),
-      part("Waiting on you", waiting, (l) => h_flex().pr(8).py(3).gap(6).items_start().text_size(12)
-        .child(div().w(14).flex_none())
-        .child(div().flex_1().min_w(0).text_color(t.foreground).child(cut(l.text, 200)))),
-      part("Doing", by("doing"), (e) => this.entry(t, e)),
-      part("Next", by("todo"), (e) => this.entry(t, e)),
-      part("Parked", by("parked"), (e) => this.entry(t, e)),
-      part("Done", done, (e) => this.entry(t, e)),
+      waiting.length > 0 && v_flex().child(this.heading(t, "Waiting on you", waiting.length))
+        .children(waiting.map((l) => h_flex().pr(8).py(3).gap(6).items_start().text_size(12)
+          .child(div().w(14).flex_none())
+          .child(div().flex_1().min_w(0).text_color(t.foreground).child(cut(l.text, 200))))),
+      (from > 0 || this.tlEarlier) && div().id("apn-tl-earlier").ml(22).mt(8).mb(2).px(6).h(22).flex().items_center().rounded(5).text_size(11).text_color(t.dim)
+        .cursor_pointer().hover((el) => el.text_color(t.foreground))
+        .on_click((_e, cx) => { this.tlEarlier = !this.tlEarlier; cx.notify(); })
+        .child(this.tlEarlier ? "show less" : `${from} earlier`),
+      v_flex().pt(from > 0 || this.tlEarlier ? 2 : 10).children(list.slice(from).map((e, j) => this.entry(t, e, from + j < solidUntil, from + j === list.length - 1))),
     ].filter(Boolean);
   }
 
-  // One entry: its dot, title and days; under it the note, or an open entry's last 4 lines.
-  entry(t, e) {
+  // One entry on the rail: its dot and the line down to the next one, then when, the title,
+  // the note, and an open entry's last 4 lines.
+  entry(t, e, solid, last) {
     const open = e.state !== "done";
-    const lines = open ? e.lines.filter((l) => l.kind !== "waiting" && l.kind !== "evidence").slice(-4) : [];
-    const under = (text, color) => h_flex().gap(6).child(div().w(14).flex_none()).child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(color).child(cut(text, 200)));
-    return v_flex().pb(4)
-      .child(h_flex().h(26).pr(8).gap(6).items_center()
-        .child(div().w(14).flex_none().flex().justify_center().text_size(9).text_color({ doing: t.foreground, done: t.accent }[e.state] ?? t.muted).child(e.state === "doing" ? "○" : "●"))
-        .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(open ? t.foreground : t.muted).child(e.title))
-        .when(e.merged, (el) => el.child(div().flex_none().px(5).rounded(4).bg(t.chrome).text_size(10).text_color(t.muted).child("merged")))
-        .child(div().flex_none().text_size(10.5).text_color(t.dim).child(days(e))))
-      .when(Boolean(e.note), (el) => el.child(under(e.note, t.muted)))
-      .children(lines.map((l) => under(l.text, t.dim)));
+    const doing = e.state === "doing";
+    const when = e.state === "done" ? days(e) : { doing: "now", todo: "next", parked: "parked" }[e.state] ?? e.state;
+    const lines = open ? e.lines.filter((l) => l.kind !== "waiting" && l.kind !== "day" && !l.kind?.startsWith("pr")).slice(-4) : [];
+    const dot = e.state === "done" ? div().w(9).h(9).rounded_full().bg(t.accent)
+      : doing ? div().w(9).h(9).rounded_full().border_2().border_color(t.working)
+      : div().w(9).h(9).rounded_full().border_1().border_dashed().border_color(t.dim);
+    const rail = v_flex().w(14).flex_none().items_center().pt(3)
+      .child(dot)
+      .when(!last, (el) => el.child(solid ? div().w(1).flex_1().mt(3).bg(t.border) : div().w(0).flex_1().mt(3).border_l_1().border_dashed().border_color(t.dim)));
+    return h_flex().items_stretch().gap(8).px(2).pr(8).rounded(6)
+      .when(doing, (el) => el.bg(t.hover))
+      .child(rail)
+      .child(v_flex().flex_1().min_w(0).pb(12).gap(1)
+        .child(h_flex().gap(6).items_center().text_size(10.5)
+          .child(div().text_color(doing ? t.working : t.dim).child(when))
+          .when(e.merged, (el) => el.child(div().flex_none().px(5).rounded(4).bg(t.chrome).text_size(10).text_color(t.muted).child("merged"))))
+        .child(div().text_size(12.5).font_semibold().text_color(open && !doing ? t.muted : t.foreground).child(e.title))
+        .when(Boolean(e.note), (el) => el.child(div().text_size(11.5).text_color(t.muted).child(cut(e.note, 240))))
+        .children(lines.map((l) => div().truncate().text_size(11.5).text_color(t.dim).child(`· ${cut(l.text, 200)}`))));
   }
 
-  // Which view is showing, and a click on another one switches to it. Timeline is this panel's own.
-  switcher(t, s) {
-    const tab = (k, label, on) => div().id(`apn-scope-${k}`).px(8).h_full().flex().items_center().rounded(4).text_size(11)
+  // Tasks and Timeline, the panel's two tabs, each with an icon.
+  tabs(t) {
+    const tab = (k, label, icon, on) => h_flex().id(`apn-tab-${k}`).px(8).h_full().gap(5).items_center().rounded(4).text_size(11.5)
       .when(on, (el) => el.bg(t.background).text_color(t.accent).font_semibold())
       .when(!on, (el) => el.text_color(t.dim).cursor_pointer().hover((el) => el.text_color(t.foreground)))
       .on_click((_e, cx) => this.pick(cx, k))
+      .child(svg(`mods/workspace-chrome/${icon}.svg`).size(12).flex_none().text_color(on ? t.accent : t.dim))
       .child(label);
-    const todos = this.mode === "todos";
-    return h_flex().flex_none().h(22).p(2).gap(2).rounded(6).bg(t.chrome).border_1().border_color(t.border)
-      .children(SCOPES.map(([k, label]) => tab(k, label, todos && s?.scope === k)))
-      .child(tab("timeline", "timeline", !todos));
+    const tasks = this.mode === "todos";
+    return h_flex().flex_none().h(24).p(2).gap(2).rounded(6).bg(t.chrome).border_1().border_color(t.border)
+      .child(tab("tasks", "Tasks", "circle-check", tasks))
+      .child(tab("timeline", "Timeline", "clock", !tasks));
+  }
+
+  // Under Tasks: which todos it lists, session, repo or all.
+  scopes(t, s) {
+    const tab = (k, label, on) => div().id(`apn-scope-${k}`).px(8).h_full().flex().items_center().rounded(4).text_size(11)
+      .when(on, (el) => el.bg(t.background).text_color(t.foreground).font_semibold())
+      .when(!on, (el) => el.text_color(t.dim).cursor_pointer().hover((el) => el.text_color(t.foreground)))
+      .on_click((_e, cx) => this.pick(cx, k))
+      .child(label);
+    return h_flex().flex_none().h(20).p(2).gap(2).rounded(6).bg(t.chrome)
+      .children(SCOPES.map(([k, label]) => tab(k, label, s?.scope === k)));
   }
 
   render(cx) {
@@ -582,13 +609,15 @@ export default class AtlasPanel extends View {
       .on_mouse_up("left", (_e, cx) => { if (this.drag) { this.drag = null; cx.notify(); } })
       .child(h_flex().h(34).flex_none().px(12).gap(6).items_center().border_b_1().border_color(t.border).text_size(12)
         .child(svg("mods/atlas-chip/atlas.svg").size(13).flex_none().text_color(t.accent))
-        .child(div().flex_1().truncate().child("atlas"))
+        .when(Boolean(s?.applies), (el) => el.child(this.tabs(t)))
+        .when(!s?.applies, (el) => el.child(div().truncate().child("atlas")))
+        .child(div().flex_1())
         .when(Boolean(this.note), (el) => el.child(div().text_size(11).text_color(t.accent).child(this.note)))
         .when(Boolean(s?.error && todos), (el) => el.child(div().text_size(11).text_color(t.dim).child("offline")))
-        .when(Boolean(s?.applies), (el) => el
+        .when(Boolean(s?.applies) && !onTimeline, (el) => el
           .child(div().id("apn-add").px(6).h(20).flex().items_center().rounded(5).text_size(13).text_color(t.dim).hover((el) => el.bg(t.hover).text_color(t.foreground))
-            .on_click((_e, cx) => this.ask(cx, { add: true })).child("+"))
-          .child(this.switcher(t, s))))
+            .on_click((_e, cx) => this.ask(cx, { add: true })).child("+"))))
+      .when(Boolean(s?.applies) && !onTimeline, (el) => el.child(h_flex().h(30).flex_none().px(10).items_center().border_b_1().border_color(t.border).child(this.scopes(t, s))))
       .when(Boolean(c), (el) => el.child(h_flex().h(36).flex_none().px(10).gap(8).items_center().border_b_1().border_color(t.border)
         .child(div().flex_none().text_size(11).text_color(t.dim).child(c.add ? "+ Inbox" : { agent: "⏎ agent", pane: "⊞ pane", tab: "⊟ tab" }[c.where]))
         .child(div().flex_1().min_w(0).h(26).px(8).flex().items_center().rounded(6).border_1().border_color(t.accent)
