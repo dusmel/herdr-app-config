@@ -7,7 +7,7 @@
 // Keys and mouse actions: atlas/repos/herdr/herdr-app/atlas-mod/design.html#actions.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, HoverCard } from "gpui-base";
-import { theme, shared, setShared, run, hc, agents, nextCommand } from "herdr";
+import { theme, shared, setShared, run, hc, agents, nextCommand, exec } from "herdr";
 import { updateTodo, moveTodo, addTodo, repoRef, PERSONAL, ago, openDoc, actingFor, setScope, SCOPES, sessionSummary, todoDetail, openTodo, effortFor, openTimeline, cut } from "./api.js";
 
 const PAGE = 20;
@@ -20,6 +20,18 @@ const days = (e) => {
   const a = day(e.started_at), b = day(e.ended_at ?? e.started_at);
   return a.d === b.d && a.m === b.m ? `${a.d} ${a.m}` : `${a.d}${a.m === b.m ? "" : ` ${a.m}`} to ${b.d} ${b.m}`;
 };
+// As on the web rail: in the now entry each line's dot takes its state.
+const lineState = (l) => {
+  if (l.kind === "unpushed" || l.kind === "now" || l.kind === "waiting" || (l.source === "todo" && l.kind === "doing")) return "doing";
+  if (l.kind === "next" || l.kind === "parked" || (l.source === "todo" && l.kind === "todo")) return "todo";
+  if (((l.source === "git" || l.source === "todo") && !l.kind) || l.kind === "done") return "done";
+  return null;
+};
+// Markdown read as plain text: links keep their words, and emphasis and code marks go.
+const plain = (text) => text.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\*\*|__|`/g, "");
+const isCommit = (l) => l.source === "git" && (!l.kind || l.kind === "unpushed");
+const isUrl = (u) => typeof u === "string" && /^https:\/\//.test(u);
+const openUrl = (u) => isUrl(u) && exec("/usr/bin/open", [u]).catch(() => null);
 const message = (todo, extra) =>
   `Work on atlas todo #${todo.id}: ${todo.title}. Read it with \`atlas todo show ${todo.id}\`, run \`atlas todo start ${todo.id}\`, and \`atlas todo done ${todo.id}\` when finished.${extra ? `\n\n${extra}` : ""}`;
 
@@ -52,6 +64,7 @@ export default class AtlasPanel extends View {
     this.expanded = null; // { id, data, error } for the one open row
     this.mode = "todos"; // or "timeline"
     this.tl = null; // { key, at, loading, data, error }: the timeline view's effort
+    this.tlOpen = new Set(); // entries whose every line shows
     this.handle = cx.focus_handle();
     this.input = InputState.new({ placeholder: "" });
     // atlas-panel.<action>: the same actions as the keys, for checks without a keyboard.
@@ -251,11 +264,12 @@ export default class AtlasPanel extends View {
     if (action === "move-bottom" && at >= 0 && at < next.length - 1) this.move(cx, todo, { bottom: true, ...lane(last) }, "moved to the bottom");
   }
 
-  // Opening the timeline always reloads it; "tasks" returns to the todo view as it was, and a
-  // todo view goes through atlas-chip's scope.
+  // Opening the timeline shows the last one at once and reloads it behind it, unless atlas-chip
+  // fetched it in the last minute; "tasks" returns to the todo view as it was, and a todo view
+  // goes through atlas-chip's scope.
   pick(cx, k) {
     this.mode = k === "timeline" ? "timeline" : "todos";
-    if (k === "timeline") this.tl = null;
+    if (k === "timeline" && this.tl) this.tl.at = 0;
     else if (k !== "tasks") setScope(k);
     cx.notify();
   }
@@ -495,12 +509,15 @@ export default class AtlasPanel extends View {
   loadTimeline(cx, s) {
     const session = shared("atlas.docs")?.session ?? null;
     const key = `${session}|${s?.repo?.id ?? ""}`;
+    // atlas-chip's copy (shared "atlas.timeline") when it is newer than ours.
+    const warm = shared("atlas.timeline");
+    if (warm?.key === key && !(this.tl?.key === key && (this.tl.loading || this.tl.at >= warm.at))) this.tl = { key, at: warm.at, loading: false, data: warm.data, error: null };
     const old = this.tl;
     if (old?.key === key && (old.loading || Date.now() - old.at < 60000)) return;
     const mine = { key, at: Date.now(), loading: true, data: old?.key === key ? old.data : null, error: null };
     this.tl = mine;
     cx.spawn(async (cx) => {
-      try { mine.data = await effortFor(session, s?.repo); }
+      try { mine.data = await effortFor(session, s?.repo, mine.data?.group?.id); setShared("atlas.timeline", { key, at: Date.now(), data: mine.data }); }
       catch (e) { mine.error = e?.message === "atlas 404" ? "This Atlas server has no timeline yet." : `Atlas is offline: ${e?.message ?? "error"}`; }
       mine.loading = false;
       mine.at = Date.now();
@@ -541,12 +558,42 @@ export default class AtlasPanel extends View {
   }
 
   // One entry on the rail: its dot and the line down to the next one, then when, the title,
-  // the note, and an open entry's last 4 lines.
+  // the note, and an open entry's last 4 lines. Clicking the title row shows every line under its
+  // day; the outcome line under an open or expanded entry links its PRs.
   entry(t, e, solid, last) {
     const open = e.state !== "done";
     const doing = e.state === "doing";
     const when = e.state === "done" ? days(e) : { doing: "now", todo: "next", parked: "parked" }[e.state] ?? e.state;
-    const lines = open ? e.lines.filter((l) => l.kind !== "waiting" && l.kind !== "day" && !l.kind?.startsWith("pr")).slice(-4) : [];
+    const all = e.lines.filter((l) => l.kind !== "waiting" && l.kind !== "day" && !l.kind?.startsWith("pr"));
+    const short = open ? all.slice(-4) : [];
+    const more = all.length > short.length;
+    const expanded = more && this.tlOpen.has(e.entry);
+    const lines = expanded ? all.slice(-60) : short;
+    const titles = new Map(e.lines.filter((l) => l.kind === "day").map((l) => [l.day, l.text]));
+    const split = expanded && new Set(lines.map((l) => l.day).filter(Boolean)).size > 1;
+    const dotOf = (l) => {
+      const s = doing ? lineState(l) : null;
+      const base = div().w(5).h(5).mt(6).flex_none().rounded_full();
+      return s === "done" ? base.bg(t.accent) : s === "doing" ? base.bg(t.working) : s === "todo" ? base.border_1().border_color(t.dim) : base.bg(t.dim);
+    };
+    let at;
+    const rows = lines.flatMap((l) => {
+      // The day and its title in the foreground and bold, so they read apart from the dim lines under them.
+      const head = split && l.day && l.day !== at ? (() => { const d = day(l.day); return h_flex().pt(5).gap(6).items_baseline().min_w(0).text_size(10.5).font_semibold().text_color(t.foreground)
+        .child(div().flex_none().child(`${d.d} ${d.m}`))
+        .when(titles.has(l.day), (el) => el.child(div().min_w(0).truncate().child(cut(titles.get(l.day), 120)))); })() : null;
+      at = l.day;
+      const row = h_flex().gap(5).items_start().child(dotOf(l)).child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(cut(plain(l.text), 200)));
+      return head ? [head, row] : [row];
+    });
+    const prs = e.lines.filter((l) => l.kind?.startsWith("pr"));
+    const commits = e.lines.filter(isCommit).length;
+    const link = (id, label, url) => div().id(id).text_color(isUrl(url) ? t.accent : t.dim)
+      .when(isUrl(url), (el) => el.cursor_pointer().hover((h) => h.text_color(t.foreground)).on_click(() => openUrl(url)))
+      .child(label);
+    const outcome = (doing || expanded) && (commits || prs.length) ? h_flex().gap(5).pt(1).text_size(10.5).text_color(t.dim)
+      .when(commits > 0, (el) => el.child(link(`apn-tl-commits-${e.entry}`, `${commits} ${commits === 1 ? "commit" : "commits"}`, prs.length === 1 && isUrl(prs[0].ref) ? `${prs[0].ref}/commits` : null)))
+      .children(prs.flatMap((l, i) => [(commits || i) && div().child("·"), link(`apn-tl-pr-${e.entry}-${i}`, l.text, l.ref)].filter(Boolean))) : null;
     const dot = e.state === "done" ? div().w(9).h(9).rounded_full().bg(t.accent)
       : doing ? div().w(9).h(9).rounded_full().border_2().border_color(t.working)
       : div().w(9).h(9).rounded_full().border_1().border_dashed().border_color(t.dim);
@@ -560,9 +607,18 @@ export default class AtlasPanel extends View {
         .child(h_flex().gap(6).items_center().text_size(10.5)
           .child(div().text_color(doing ? t.working : t.dim).child(when))
           .when(e.merged, (el) => el.child(div().flex_none().px(5).rounded(4).bg(t.chrome).text_size(10).text_color(t.muted).child("merged"))))
-        .child(div().text_size(12.5).font_semibold().text_color(open && !doing ? t.muted : t.foreground).child(e.title))
-        .when(Boolean(e.note), (el) => el.child(div().text_size(11.5).text_color(t.muted).child(cut(e.note, 240))))
-        .children(lines.map((l) => div().truncate().text_size(11.5).text_color(t.dim).child(`· ${cut(l.text, 200)}`))));
+        // An entry with hidden lines opens and folds from anywhere on its title row.
+        .child(h_flex().id(`apn-tl-fold-${e.entry}`).gap(4).items_center().rounded(4)
+          .when(more, (el) => el.cursor_pointer().hover((h) => h.bg(t.chrome))
+            .on_click((_e, cx) => { this.tlOpen.has(e.entry) ? this.tlOpen.delete(e.entry) : this.tlOpen.add(e.entry); cx.notify(); }))
+          .child(div().min_w(0).text_size(12.5).font_semibold().text_color(open && !doing ? t.muted : t.foreground).child(e.title))
+          .when(more, (el) => el.child(h_flex().flex_none().gap(2).items_center().px(3).py(1).text_size(10).text_color(t.dim)
+            // The web rail's icons (lucide), so both read the same.
+            .child(svg(`mods/atlas-panel/${expanded ? "chevrons-down-up" : "chevrons-up-down"}.svg`).size(12).flex_none().text_color(t.dim))
+            .when(!expanded, (el) => el.child(`${all.length}`)))))
+        .when(Boolean(e.note), (el) => el.child(div().text_size(11.5).text_color(t.muted).child(cut(plain(e.note), 240))))
+        .children(rows)
+        .when(Boolean(outcome), (el) => el.child(outcome)));
   }
 
   // Tasks and Timeline, the panel's two tabs, each with an icon.

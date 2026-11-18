@@ -1,13 +1,14 @@
 // The atlas chip, right of the status bar: "◆ 2 doing · 3 done today · 2 docs" for
 // the focused agent's repo. It owns all atlas data and publishes it as shared
-// "atlas" (todos) and "atlas.docs" (this session's docs); atlas-pop and atlas-panel
+// "atlas" (todos), "atlas.docs" (this session's docs) and "atlas.timeline" (its effort's
+// timeline, loaded ahead so the panel's Timeline tab opens at once); atlas-pop and atlas-panel
 // only read them and ask for a refresh with shared "atlas.want". Hidden (0 px)
 // unless the focused pane is an agent in a repo with an atlas link, or in the atlas
 // tree. Budget: herdr-app/plan.html#budget.
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { focused, layout, spaces, theme, settings, shared, setShared, run, openOverlay, exec, appHome, nextCommand } from "herdr";
-import { repoOf, listTodos, today, cut, sessionOf, sessionList, sessionTodos, getTodo, rankTodos, listGroups, groupTodos, effortGroups, mix, popRows, setScope, byStatus, SCOPES } from "./api.js";
+import { repoOf, listTodos, today, cut, sessionOf, sessionList, sessionTodos, getTodo, rankTodos, listGroups, groupTodos, effortGroups, mix, popRows, setScope, byStatus, SCOPES, effortFor } from "./api.js";
 
 const EMPTY = { applies: false };
 
@@ -22,6 +23,7 @@ export default class AtlasChip extends View {
     cx.timer.every(60000, (cx) => {
       if (!shared("atlas")?.applies) return;
       this.load(cx);
+      this.timeline(cx);
       const d = shared("atlas.docs");
       if (d?.key === this.key) cx.spawn(() => this.mine(this.key, d.session, d.todos ?? [], false).catch(() => null));
     });
@@ -98,6 +100,25 @@ export default class AtlasChip extends View {
     });
   }
 
+  // The session's effort timeline as shared "atlas.timeline", keyed like the panel's own load.
+  // Finding the effort takes 1 or 2 requests before its entries, about 0.5 s each, so it is
+  // fetched here ahead of time. A refresh asks for the effort it found last time: one request.
+  timeline(cx) {
+    const s = shared("atlas");
+    if (!s?.applies) return;
+    const session = shared("atlas.docs")?.session ?? null;
+    const key = `${session}|${s.repo?.id ?? ""}`;
+    const old = shared("atlas.timeline");
+    if (this.tlKey === key || (old?.key === key && Date.now() - old.at < 50000)) return;
+    this.tlKey = key;
+    const known = old?.key === key ? old.data?.group?.id : null;
+    cx.spawn(async () => {
+      try { setShared("atlas.timeline", { key, at: Date.now(), data: await effortFor(session, s.repo, known) }); }
+      catch {}
+      finally { if (this.tlKey === key) this.tlKey = null; }
+    });
+  }
+
   // The session view's lists, from the session's ranked todos.
   session(list) {
     const s = shared("atlas");
@@ -155,6 +176,7 @@ export default class AtlasChip extends View {
         if (key !== this.key) return;
         const { docs, todos } = sessionList(r.stdout, repo);
         setShared("atlas.docs", { key, start: sess?.start ?? midnight, session: sess?.id ?? null, list: docs, todos });
+        this.timeline(cx);
         await this.mine(key, sess?.id, todos, true);
       } catch {
       } finally {

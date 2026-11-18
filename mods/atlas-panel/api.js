@@ -50,7 +50,9 @@ export const addTodo = (body) => call(`/api/todos`, { method: "POST", body: JSON
 // The timeline (atlas/repos/atlas/timeline/design.html): the effort a session works on, else
 // the repo's latest, with its entries. { effort: null } when there is none. A server without
 // the timeline answers a bare 404, which throws "atlas 404"; an unknown session is not_found.
-export async function effortFor(session, repo) {
+// `known`, the effort found last time, skips the lookup: one request instead of two or three.
+export async function effortFor(session, repo, known = null) {
+  if (known) { const v = await call(`/api/timeline?group=${known}`).catch(() => null); if (v?.group) return v; }
   let effort = null;
   if (session) {
     const v = await call(`/api/timeline?session=${encodeURIComponent(session)}`).catch((e) => { if (e?.message === "atlas 404") throw e; return null; });
