@@ -8,7 +8,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { focused, layout, spaces, theme, settings, shared, setShared, run, openOverlay, exec, appHome, nextCommand } from "herdr";
-import { repoOf, listTodos, today, cut, sessionOf, sessionList, sessionTodos, getTodo, rankTodos, listGroups, groupTodos, effortGroups, mix, popRows, setScope, byStatus, SCOPES, effortFor } from "./api.js";
+import { repoOf, listTodos, today, cut, sessionOf, sessionList, sessionTodos, getTodo, rankTodos, listGroups, groupTodos, effortGroups, mix, popRows, setScope, byStatus, SCOPES, effortFor, choicesFresh, keepChoices } from "./api.js";
 
 const EMPTY = { applies: false };
 
@@ -111,13 +111,14 @@ export default class AtlasChip extends View {
     const old = shared("atlas.timeline");
     if (this.tlKey === key || (old?.key === key && Date.now() - old.at < 50000)) return;
     this.tlKey = key;
-    // The effort picked in the panel for this session (shared "atlas.timeline.pick"), else the last one,
-    // but only once its choices are known: a copy without them takes the full lookup.
-    const known = shared("atlas.timeline.pick")?.[session] ?? (old?.key === key && old.data?.choices ? old.data.group?.id : null);
+    // The effort picked in the panel for this session (shared "atlas.timeline.pick"), else the last one
+    // while its choices are fresh; stale or missing choices take the full lookup.
+    const prev = old?.key === key ? old.data : null;
+    const quick = choicesFresh(prev);
+    const known = shared("atlas.timeline.pick")?.[session] ?? (quick ? prev.group?.id : null);
     cx.spawn(async () => {
       try {
-        const data = await effortFor(session, s.repo, known);
-        if (!data.choices && old?.key === key) data.choices = old.data?.choices;
+        const data = keepChoices(await effortFor(session, s.repo, known, quick), prev);
         setShared("atlas.timeline", { key, at: Date.now(), data });
       }
       catch {}
