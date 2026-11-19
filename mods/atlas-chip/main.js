@@ -111,9 +111,15 @@ export default class AtlasChip extends View {
     const old = shared("atlas.timeline");
     if (this.tlKey === key || (old?.key === key && Date.now() - old.at < 50000)) return;
     this.tlKey = key;
-    const known = old?.key === key ? old.data?.group?.id : null;
+    // The effort picked in the panel for this session (shared "atlas.timeline.pick"), else the last one,
+    // but only once its choices are known: a copy without them takes the full lookup.
+    const known = shared("atlas.timeline.pick")?.[session] ?? (old?.key === key && old.data?.choices ? old.data.group?.id : null);
     cx.spawn(async () => {
-      try { setShared("atlas.timeline", { key, at: Date.now(), data: await effortFor(session, s.repo, known) }); }
+      try {
+        const data = await effortFor(session, s.repo, known);
+        if (!data.choices && old?.key === key) data.choices = old.data?.choices;
+        setShared("atlas.timeline", { key, at: Date.now(), data });
+      }
       catch {}
       finally { if (this.tlKey === key) this.tlKey = null; }
     });

@@ -224,6 +224,13 @@ export default class AtlasPanel extends View {
     }
     if (action === "add") return this.ask(cx, { add: true });
     if (action.startsWith("add:")) return this.add(cx, action.slice(4));
+    // On Timeline, "f" steps through the session's efforts and effort-<id> picks one, like the chips.
+    if (this.mode === "timeline" && (action === "effort" || action.startsWith("effort-"))) {
+      const ids = (this.tl?.data?.choices ?? []).map((c) => c.id);
+      if (ids.length < 2) return;
+      const now = this.picked(shared("atlas.docs")?.session ?? null) ?? this.tl.data.group?.id;
+      return this.pickEffort(cx, action === "effort" ? ids[(ids.indexOf(now) + 1) % ids.length] : Number(action.slice(7)));
+    }
     if (action === "effort") {
       const list = [null, ...this.lists().efforts.map(([g]) => g)];
       this.effort = list[(list.indexOf(this.effort) + 1) % list.length];
@@ -509,20 +516,53 @@ export default class AtlasPanel extends View {
   loadTimeline(cx, s) {
     const session = shared("atlas.docs")?.session ?? null;
     const key = `${session}|${s?.repo?.id ?? ""}`;
-    // atlas-chip's copy (shared "atlas.timeline") when it is newer than ours.
+    const target = this.picked(session);
+    // atlas-chip's copy (shared "atlas.timeline") when it is newer than ours and shows the pick.
     const warm = shared("atlas.timeline");
-    if (warm?.key === key && !(this.tl?.key === key && (this.tl.loading || this.tl.at >= warm.at))) this.tl = { key, at: warm.at, loading: false, data: warm.data, error: null };
+    if (warm?.key === key && (!target || warm.data?.group?.id === target) && !(this.tl?.key === key && (this.tl.loading || this.tl.at >= warm.at))) this.tl = { key, target, at: warm.at, loading: false, data: warm.data, error: null };
     const old = this.tl;
-    if (old?.key === key && (old.loading || Date.now() - old.at < 60000)) return;
-    const mine = { key, at: Date.now(), loading: true, data: old?.key === key ? old.data : null, error: null };
+    // A picked effort not on screen yet loads now, whatever the age of what is.
+    const moved = target && old?.data?.group && old.data.group.id !== target;
+    if (old?.key === key && old.loading && old.target === target) return;
+    if (old?.key === key && !old.loading && !moved && Date.now() - old.at < 60000) return;
+    const mine = { key, target, at: Date.now(), loading: true, data: old?.key === key ? old.data : null, error: null };
     this.tl = mine;
     cx.spawn(async (cx) => {
-      try { mine.data = await effortFor(session, s?.repo, mine.data?.group?.id); setShared("atlas.timeline", { key, at: Date.now(), data: mine.data }); }
+      try {
+        const prev = mine.data;
+        const data = await effortFor(session, s?.repo, target ?? (prev?.choices ? prev.group?.id : null));
+        if (!data.choices) data.choices = prev?.choices;
+        mine.data = data;
+        setShared("atlas.timeline", { key, at: Date.now(), data });
+      }
       catch (e) { mine.error = e?.message === "atlas 404" ? "This Atlas server has no timeline yet." : `Atlas is offline: ${e?.message ?? "error"}`; }
       mine.loading = false;
       mine.at = Date.now();
       if (this.tl === mine) cx.notify();
     });
+  }
+
+  // The effort picked for this session in the chips under the timeline header, if any.
+  picked(session) {
+    return (session && shared("atlas.timeline.pick")?.[session]) ?? null;
+  }
+
+  pickEffort(cx, id) {
+    const session = shared("atlas.docs")?.session;
+    if (!session) return;
+    setShared("atlas.timeline.pick", { ...(shared("atlas.timeline.pick") ?? {}), [session]: id });
+    cx.notify();
+  }
+
+  // One chip per effort the session worked on, best first; shown only when there is more than one.
+  choices(t, v, shown) {
+    if (!(v.choices?.length > 1)) return null;
+    return h_flex().flex_wrap().gap(4).px(8).pt(2).pb(4)
+      .children(v.choices.map((c) => div().id(`apn-tl-pick-${c.id}`).flex_none().px(8).h(22).flex().items_center().rounded(11).border_1().text_size(11).cursor_pointer()
+        .border_color(c.id === shown ? t.accent : t.border).text_color(c.id === shown ? t.accent : t.muted)
+        .hover((el) => el.text_color(t.foreground))
+        .on_click((_e, cx) => this.pickEffort(cx, c.id))
+        .child(div().max_w(160).truncate().child(c.name))));
   }
 
   // As on the web page: what waits on you, then the rail oldest first, a solid line up to now
@@ -533,6 +573,9 @@ export default class AtlasPanel extends View {
     const say = (text) => div().px(8).py(8).text_size(12).text_color(t.dim).child(text);
     if (!v) return [say(tl?.error ?? "Loading…")];
     if (!v.group) return [say("No effort linked to this session or repo. Link one with atlas timeline link.")];
+    // Right after a pick, the chips show it while its timeline loads.
+    const target = this.picked(shared("atlas.docs")?.session ?? null);
+    if (target && v.group.id !== target && v.choices?.some((c) => c.id === target)) return [this.choices(t, v, target), say(tl.error ?? "Loading…")].filter(Boolean);
     const list = v.entries;
     const waiting = list.filter((e) => e.state !== "done").flatMap((e) => e.lines.filter((l) => l.kind === "waiting")).slice(0, 8);
     const doingAt = list.findIndex((e) => e.state === "doing");
@@ -544,6 +587,7 @@ export default class AtlasPanel extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_semibold().text_color(t.accent).child(v.group.name))
         .child(div().flex_none().text_size(10.5).text_color(t.dim).child([v.group.repo_name, v.group.branches].filter(Boolean).join(" · ")))
         .child(svg("mods/atlas-chip/link.svg").size(11).flex_none().text_color(t.dim)),
+      this.choices(t, v, v.group.id),
       tl.error && say(tl.error),
       waiting.length > 0 && v_flex().child(this.heading(t, "Waiting on you", waiting.length))
         .children(waiting.map((l) => h_flex().pr(8).py(3).gap(6).items_start().text_size(12)
@@ -696,7 +740,7 @@ export default class AtlasPanel extends View {
           this.docs(t, docs),
         ].filter(Boolean)))
       .child(h_flex().flex_none().flex_wrap().px(12).py(6).gap_x(12).gap_y(4).items_center().border_t_1().border_color(t.border).text_size(12)
-        .children((onTimeline ? [["r", "view"]] : KEYS).map(([k, what]) => h_flex().gap(4).items_center()
+        .children((onTimeline ? [["r", "view"], ...(this.tl?.data?.choices?.length > 1 ? [["f", "effort"]] : [])] : KEYS).map(([k, what]) => h_flex().gap(4).items_center()
           .child(div().px(5).rounded(4).bg(t.chrome).border_1().border_color(t.border).text_color(t.foreground).child(k))
           .child(div().text_color(t.muted).child(what)))));
   }

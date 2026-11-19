@@ -50,20 +50,23 @@ export const addTodo = (body) => call(`/api/todos`, { method: "POST", body: JSON
 // The timeline (atlas/repos/atlas/timeline/design.html): the effort a session works on, else
 // the repo's latest, with its entries. { effort: null } when there is none. A server without
 // the timeline answers a bare 404, which throws "atlas 404"; an unknown session is not_found.
-// `known`, the effort found last time, skips the lookup: one request instead of two or three.
+// `known`, the effort found last time or the one picked, skips the lookup: one request instead of
+// two or three, and the answer has no `choices`, so callers keep the ones they had.
+// `choices`: every effort the session worked on, best first, for picking another one.
 export async function effortFor(session, repo, known = null) {
   if (known) { const v = await call(`/api/timeline?group=${known}`).catch(() => null); if (v?.group) return v; }
-  let effort = null;
+  let effort = null, choices = [];
   if (session) {
     const v = await call(`/api/timeline?session=${encodeURIComponent(session)}`).catch((e) => { if (e?.message === "atlas 404") throw e; return null; });
     const score = (e) => (e.repo_name === repo?.name ? 4 : 0) + (e.branches ? 2 : 0) + e.signals.length / 10;
-    effort = (v?.session?.efforts ?? []).filter((e) => e.branches || e.signals.includes("adopted")).sort((a, b) => score(b) - score(a))[0] ?? null;
+    choices = (v?.session?.efforts ?? []).filter((e) => e.branches || e.signals.includes("adopted")).sort((a, b) => score(b) - score(a)).map(({ id, name, repo_name }) => ({ id, name, repo_name }));
+    effort = choices[0] ?? null;
   }
   if (!effort && repo?.id) {
     const list = await call(`/api/timeline`);
     effort = list.efforts.filter((e) => e.repo_id === repo.id).sort((a, b) => (b.last_at ?? "").localeCompare(a.last_at ?? ""))[0] ?? null;
   }
-  return effort ? call(`/api/timeline?group=${effort.id}`) : { effort: null };
+  return effort ? { ...(await call(`/api/timeline?group=${effort.id}`)), choices } : { effort: null, choices };
 }
 export const openTimeline = async (group) => { const c = await config(); if (c?.url) await exec("/usr/bin/open", [`${c.url}/timeline?group=${group}`]).catch(() => null); };
 
