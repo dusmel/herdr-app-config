@@ -14,6 +14,7 @@ herdr-app rewrites `AGENTS.md` on every start, so our rules live here.
 3. To copy a stock mod, run `herdr-app do mod.clone`, then `tools/reclone init`, then add a line to `custom/manifest.json` saying why.
 4. Never call `mod.clone` for a scratch copy. It can add the new mod to the shown layout as a block. For a throwaway copy, copy the files.
 5. Add every own mod to the manifest's `own` list too.
+   Write a new mod's `mod.json` before its `main.js`. A `main.js` that appears with no `mod.json` gets added to the shown layout as a block.
 
 ## Check the change
 

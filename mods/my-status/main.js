@@ -14,15 +14,14 @@ export default class WorkspaceStatus extends View {
     return key ? `${key}  commands` : "commands";
   }
 
-  // Remembers the last two focused panes for pane-back (alt-tab). This bar is
-  // always on screen, so it sees every focus change.
+  // Remembers the last 50 focused panes, newest first, for pane-jump (alt-tab) and the
+  // palette's "Go to pane id…". This bar is always on screen, so it sees every focus change.
   track() {
     const f = focused();
     if (!f?.pane) return;
-    const cur = shared("pane.cur");
-    if (cur?.pane === f.pane) return;
-    if (cur) setShared("pane.prev", cur);
-    setShared("pane.cur", { space: f.space, tab: f.tab, pane: f.pane });
+    const recent = shared("pane.recent") ?? [];
+    if (recent[0] === f.pane) return;
+    setShared("pane.recent", [f.pane, ...recent.filter((p) => p !== f.pane)].slice(0, 50));
   }
 
   // The space chip stands in for the sidebar while it is hidden.

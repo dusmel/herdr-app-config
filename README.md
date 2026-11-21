@@ -34,9 +34,10 @@ The atlas mods need the `atlas` CLI to be logged in (`~/.config/atlas/config.jso
 | `cmd-k` | `space-jump` | Switch spaces, with each space's worktrees under it |
 | `cmd-alt-k` | `tab-jump` | Switch tabs in the shown space. Number keys go there, `/` filters |
 | `cmd-m` | `pane-pick` | Put a letter in each pane's header, then jump to the pane by its letter |
-| `alt-tab` | `pane-back` | Go back to the pane you were in before, in any space |
+| `alt-tab` | `pane-jump` | Go back to the pane you were in before, in any space. Hold `alt` to see the 9 most recent: Tab and `` ` `` move, 1 to 9 jump, letting go of `alt` goes |
+| `alt-shift-c` | `pane-copy` | Copy the focused pane's terminal id, the one `hc` and agents use |
 | `ctrl-1`…`ctrl-9` | `go-space-N` | Go to the Nth space, not counting worktrees |
-| `cmd-alt-p` | `commands` | A short command list, each with its key |
+| `cmd-alt-p` | `commands` | A short command list, each with its key. Its "Go to pane id…" jumps to a pane by terminal id |
 | `ctrl-alt-enter` | `zen` | Switch between `mine` and `zen` |
 | `ctrl-alt-g` | `lazygit` | Open lazygit in a floating window |
 | `cmd-shift-a` | `atlas-chip` | Open the atlas panel |

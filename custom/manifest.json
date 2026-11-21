@@ -1,13 +1,12 @@
 {
   "copies": {
     "my-chrome": "Sidebar header. Keeps the 76px traffic-light gap only while mine.json keeps the window buttons on screen.",
-    "my-status": "Status bar. Records the last two focused panes for pane-back (alt-tab), and shows the space chip while the sidebar is hidden. Also shows the update-check pill. A 'manual' link opens herdr-app/manual.html in atlas.",
+    "my-status": "Status bar. Records the last 50 focused panes for pane-jump (alt-tab), and shows the space chip while the sidebar is hidden. Also shows the update-check pill. A 'manual' link opens herdr-app/manual.html in atlas.",
     "my-tabs": "Tab bar. A zoomed tab shows an accent expand icon instead of a trailing Z.",
     "my-pane": "Pane header. A zoomed pane shows 'N hidden' with an expand icon on the right. Also shows the pane's letter while cmd-m picks.",
     "layout:mine": "The window. Uses the copies above, puts space-chip left of the tabs, moves the traffic lights off screen."
   },
   "own": {
-    "pane-back": "alt-tab: back to the previous pane in any space. Reads shared pane.prev written by my-status.",
     "space-chip": "Shown space's avatar and name left of the tabs while the sidebar is hidden.",
     "setup-check": "Opens a Claude tab that runs custom/CHECK.md. Opened from the status-bar pill or the update toast.",
     "go-space-1..9": "alt-N / ctrl-N: Nth space that is not a worktree.",
@@ -15,6 +14,8 @@
     "zen": "ctrl-alt-enter: zen layout.",
     "dim-avatars": "Dims space avatars.",
     "commands": "cmd-alt-p: command list.",
+    "pane-jump": "alt-tab, held: the 9 most recent panes, previous one selected. Tab and ` move, 1-9 jump, letting go of alt goes. keys.json mod:pane-jump sends those keys to it while open. Reads shared pane.recent written by my-status.",
+    "pane-copy": "alt-shift-c: copies the focused terminal id with pbcopy.",
     "lazygit": "ctrl-alt-g: lazygit in a float.",
     "pane-pick": "cmd-m: WezTerm-style pane select. Letters show in each pane's header (my-pane reads shared pane.pick).",
     "tab-jump": "cmd-alt-k and cmd-shift-k (both while choosing): tabs of the shown space. Number keys go, / filters.",
