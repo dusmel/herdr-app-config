@@ -54,12 +54,13 @@ export const addTodo = (body) => call(`/api/todos`, { method: "POST", body: JSON
 // instead of two or three, and the answer has no `choices`, so callers keep the ones they had.
 // Without it, the full lookup still shows `known` when the session worked on it.
 // `choices`: every effort the session worked on, best first, for picking another one; `choicesAt`: when.
-export async function effortFor(session, repo, known = null, quick = true) {
+// `branch`, the one checked out where the agent works, ranks first the effort whose pattern matches it.
+export async function effortFor(session, repo, known = null, quick = true, branch = null) {
   if (known && quick) { const v = await call(`/api/timeline?group=${known}`).catch(() => null); if (v?.group) return v; }
   let effort = null, choices = [];
   if (session) {
     const v = await call(`/api/timeline?session=${encodeURIComponent(session)}`).catch((e) => { if (e?.message === "atlas 404") throw e; return null; });
-    const score = (e) => (e.repo_name === repo?.name ? 4 : 0) + (e.branches ? 2 : 0) + e.signals.length / 10;
+    const score = (e) => (branch && e.branches && globRe(e.branches).test(branch) ? 8 : 0) + (e.repo_name === repo?.name ? 4 : 0) + (e.branches ? 2 : 0) + e.signals.length / 10;
     choices = (v?.session?.efforts ?? []).filter((e) => e.branches || e.signals.includes("adopted")).sort((a, b) => score(b) - score(a)).map(({ id, name, repo_name }) => ({ id, name, repo_name }));
     effort = choices.find((c) => c.id === known) ?? choices[0] ?? null;
   }
@@ -69,6 +70,28 @@ export async function effortFor(session, repo, known = null, quick = true) {
   }
   const choicesAt = Date.now();
   return effort ? { ...(await call(`/api/timeline?group=${effort.id}`)), choices, choicesAt } : { effort: null, choices, choicesAt };
+}
+
+// A branch pattern as `git for-each-ref` reads it, the same as the server: `*` matches across `/` too.
+const globRe = (glob) => new RegExp(`^${glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`);
+
+// The branch checked out in a folder or its parents, read from .git/HEAD with no process; a worktree's
+// .git is a file naming its git dir. Kept a minute per folder, so a checkout shows within one refresh.
+const heads = new Map();
+export async function branchOf(folder) {
+  const hit = folder && heads.get(folder);
+  if (hit && Date.now() - hit.at < 60000) return hit.branch;
+  let branch = null;
+  for (let dir = folder, i = 0; dir && dir !== "/" && i < 6; i++, dir = dir.slice(0, dir.lastIndexOf("/"))) {
+    const dot = await readTextFile(`${dir}/.git`).catch(() => null);
+    const git = dot?.startsWith("gitdir:") ? dot.slice(7).trim() : (await fs.exists(`${dir}/.git/HEAD`).catch(() => false)) ? `${dir}/.git` : null;
+    if (!git) continue;
+    const head = await readTextFile(`${git.startsWith("/") ? git : `${dir}/${git}`}/HEAD`).catch(() => null);
+    branch = head?.match(/^ref: refs\/heads\/(.+)/)?.[1]?.trim() ?? null;
+    break;
+  }
+  if (folder) heads.set(folder, { at: Date.now(), branch });
+  return branch;
 }
 
 // A session gains efforts as it works (its links sync on Stop, every 10 minutes at most), so

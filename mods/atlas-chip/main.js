@@ -8,7 +8,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { focused, layout, spaces, theme, settings, shared, setShared, run, openOverlay, exec, appHome, nextCommand } from "herdr";
-import { repoOf, listTodos, today, cut, sessionOf, sessionList, sessionTodos, getTodo, rankTodos, listGroups, groupTodos, effortGroups, mix, popRows, setScope, byStatus, SCOPES, effortFor, choicesFresh, keepChoices } from "./api.js";
+import { repoOf, listTodos, today, cut, sessionOf, sessionList, sessionTodos, getTodo, rankTodos, listGroups, groupTodos, effortGroups, mix, popRows, setScope, byStatus, SCOPES, effortFor, choicesFresh, keepChoices, branchOf } from "./api.js";
 
 const EMPTY = { applies: false };
 
@@ -118,7 +118,7 @@ export default class AtlasChip extends View {
     const known = shared("atlas.timeline.pick")?.[session] ?? (quick ? prev.group?.id : null);
     cx.spawn(async () => {
       try {
-        const data = keepChoices(await effortFor(session, s.repo, known, quick), prev);
+        const data = keepChoices(await effortFor(session, s.repo, known, quick, quick ? null : await branchOf(s.folder)), prev);
         setShared("atlas.timeline", { key, at: Date.now(), data });
       }
       catch {}

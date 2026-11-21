@@ -8,7 +8,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, HoverCard } from "gpui-base";
 import { theme, shared, setShared, run, hc, agents, nextCommand, exec } from "herdr";
-import { updateTodo, moveTodo, addTodo, repoRef, PERSONAL, ago, openDoc, actingFor, setScope, SCOPES, sessionSummary, todoDetail, openTodo, effortFor, choicesFresh, keepChoices, openTimeline, cut } from "./api.js";
+import { updateTodo, moveTodo, addTodo, repoRef, PERSONAL, ago, openDoc, actingFor, setScope, SCOPES, sessionSummary, todoDetail, openTodo, effortFor, choicesFresh, keepChoices, branchOf, openTimeline, cut } from "./api.js";
 
 const PAGE = 20;
 const OTHER = "no group";
@@ -531,7 +531,7 @@ export default class AtlasPanel extends View {
       try {
         const prev = mine.data;
         const quick = choicesFresh(prev);
-        const data = keepChoices(await effortFor(session, s?.repo, target ?? (quick ? prev.group?.id : null), quick), prev);
+        const data = keepChoices(await effortFor(session, s?.repo, target ?? (quick ? prev.group?.id : null), quick, quick ? null : await branchOf(s?.folder)), prev);
         mine.data = data;
         setShared("atlas.timeline", { key, at: Date.now(), data });
       }
